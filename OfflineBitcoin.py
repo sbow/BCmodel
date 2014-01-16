@@ -39,7 +39,7 @@ print "Initial Time: ", str(worldInitialDatetime)
 strategyString = 'Strategy1'
 worldNloops = 3
 worldInitialCavirtexFunding = float(10000)
-targetProfit = 0.14
+targetProfit = 0.06
 
 # RUN
 modelTradeModel = StrategyModel1.StrategyModel1(dataUSDCAD,dataBitstamp,dataCavirtex,targetProfit)
