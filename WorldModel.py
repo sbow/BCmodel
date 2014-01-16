@@ -17,9 +17,12 @@ delayExchangeDecision       = 600       #(s), delay between USD posession in US 
 delayUSDCADExchange         = 60*60*24*4#(s), delay between US Bank posession and CDN Bank possesion (ie: Exchange delay)
 delayBankCavirtexDecision   = 60*60*4   #(s), delay between CDN Bank posession and action/decision to transfer to Cavirtex
 delayBankCavirtexDeposit    = 60*60*4   #(s), delay between action to transfer from CDN Bank to Cavirtex & funts available in Cavirtex
-feeBitstampWithdrawl        = 1         #($USD), withdrawl fee from Bitstamp (constant)
-feeCavirtexDeposit          = 1         #($CAD), deposit fee to Cavirtex from CA bank
+feeBitstampWithdrawl        = 0         #($USD), withdrawl fee from Bitstamp (constant)
+feeBitstampWithdrawlPct     = float(0.01) #(1/100%), fee charged to withdrawl money from bitstamp / coinbase. TransferedFunds = BitstampFunds*(1-ThisConstant)
+feeCavirtexDeposit          = 5         #($CAD), deposit fee to Cavirtex from CA bank
 feeExchangePercentage       = float(0.02)      #(1/100%), fee ontop of actual exchange rate charged by USBank for doing an exchange & transfer to CABank
+feeCavirtexPurchasePct         = float(0.015) #(1/100%), fee charged ontop of Cavirtex BTC purchase price, paid at time of purchase
+
 __author__ = 'shaun'
 
 import datetime, collections, csv
@@ -36,6 +39,7 @@ class WorldModel(object):
     timeMinEndOfDataObjects = []
     strategyString = []
     cycleInfo = []
+    overallInfo = {}
     modelState = []
 
     __balanceCavirtexCAD = float(0)
@@ -53,8 +57,6 @@ class WorldModel(object):
 
     indexes = collections.namedtuple('Indexes', ['bitstamp','cavirtex','exchange'])
     returnBuyDecision = collections.namedtuple('ReturnResult', ['decisionTime', 'bSuccess', 'currentIndicies'])
-    cycleInfoKeys = ['CycleNumber','BuyStratStartDateTime','BuyDatetime','BuyBalanceCAD','BuyBalanceBTC','ExchangeAtBuyTime','BuyBitstampPriceUSD','BuyCavirtexPriceCAD','SellDatetime','SellCavirtexPriceCAD','SellBitstampPriceUSD','SellBalanceUSD','TransferOrderDatetime','TransferOrderBalanceCAD','ExchangeAtTransferOrder','ExchangeFee','CaBankReFundedDatetime']
-
 
     def __init__(self, initialDatetime, numberTradeLoops, initialCavirtexFunding, trademodelObject, bitstampTransactionObject, cavirtexTransactionObject, exchangeUSDCADObject, strategyString):
         self.initialDatetime = initialDatetime
@@ -108,7 +110,7 @@ class WorldModel(object):
             # 2) Cavirtex Buy Execution - modeled as infinitely stiff market, ie: can buy at last transaction price
             self.modelState = 'Cavirtex Buy Execution'
             currentIndicies = self.__findIndiciesForTimeWithStart(self.__timeCurrent, currentIndicies) # find new time after order delay
-            self.__balanceCavirtexBTC = self.__balanceCavirtexCAD / float(self.cavirtexTransactionObject[currentIndicies.cavirtex]['price']) # purchase, uses all available money
+            self.__balanceCavirtexBTC = self.__balanceCavirtexCAD / (float(self.cavirtexTransactionObject[currentIndicies.cavirtex]['price'])*(1.0+feeCavirtexPurchasePct)) # purchase, uses all available money. Including purchase % fee
 
             self.cycleInfo[cycle]['d: BuyBalanceCAD'] = self.__balanceCavirtexCAD
             self.cycleInfo[cycle]['e: BuyBalanceBTC'] = self.__balanceCavirtexBTC
@@ -158,7 +160,7 @@ class WorldModel(object):
 
             # 6) Bitstamp Withdrawl - transfer from bitstamp to USBank; with fee:
             self.modelState = 'Bitstamp Withdrawl'
-            self.__balanceUsbankUSD = self.__balanceBitstampUSD - feeBitstampWithdrawl
+            self.__balanceUsbankUSD = (self.__balanceBitstampUSD - feeBitstampWithdrawl)*(1.0-feeBitstampWithdrawl)
             self.__balanceBitstampUSD = 0
             # print "6) time at Bitstamp withdrawl to US Bank decision: ", str(self.__timeCurrent)
 
@@ -203,7 +205,7 @@ class WorldModel(object):
 
             # 10) CA Bank Cavirtex Transfer
             self.modelState = 'CA Bank Cavirtex Transfer'
-            self.__balanceCavirtexCAD = self.__balanceCabankCAD
+            self.__balanceCavirtexCAD = self.__balanceCabankCAD - feeCavirtexDeposit # transfer all available money, less transfer fee
             self.__balanceCabankCAD = 0
 
             # 10.action) Delay bank Cavirtex deposit
@@ -213,6 +215,7 @@ class WorldModel(object):
 
             # 11) Cavitex funded
             self.modelState = 'Cavirtex Funded'
+            self.cycleInfo[cycle]['r: CavitexFundedDatetime'] = self.__timeCurrent
 
             self.__retainedIndicies = currentIndicies # for start of next loop  / trade
 
@@ -244,8 +247,23 @@ class WorldModel(object):
 
         return self.indexes(bitstamp=indexBitstamp, cavirtex=indexCavirtex, exchange=indexUSDCAD)
 
-    # postProc: run some calcs on data (not implemented yet)
+    # postProc: run some calcs on data
     def postProc(self):
+        startDate = self.cycleInfo[0]['b: BuyStratStartDateTime']
+        endDate = self.cycleInfo[-1]['r: CavitexFundedDatetime']
+        nDaysDuration   = float((endDate - startDate).total_seconds()/float( 24*60*60 )) # convert to seconds in order to get decimal form of days
+        nDollarsProfit  = self.cycleInfo[-1]['n: TransferOrderBalanceCAD'] - self.cycleInfo[0]['d: BuyBalanceCAD'] # profit is positive, loss negative
+        nDollarsPerDay  = nDollarsProfit / nDaysDuration
+        nTotalFeesPct   = feeExchangePercentage + feeBitstampWithdrawlPct + feeCavirtexPurchasePct
+        nTotalFeesFixed   = feeBitstampWithdrawl + feeCavirtexDeposit # does not account for exchange rate, note: mixes CAD & USD
+
+        nNormDollarsPerDay = nDollarsPerDay / float(self.initialCavirtexFunding) # dollars per day, normalized by initial funding (not the same as % per day)
+        self.overallInfo = {'a: iniCavirtex$CAD':self.initialCavirtexFunding, 'b: finalCaBank$CAD':self.cycleInfo[-1]['n: TransferOrderBalanceCAD'], 'c: nDaysDuration':str(nDaysDuration), 'd: nDollarsProfit':nDollarsProfit, 'e: nDollarsPerDay':str(nDollarsPerDay), 'f: nNormDollarsPerDay':str(nNormDollarsPerDay), 'g: targetProf':int(100*self.trademodelObject.getTargetProfit()), 'h: totalPctFees':str(nTotalFeesPct) }
+        strPrintStr = ""
+        for key in sorted(self.overallInfo):
+            strPrintStr = strPrintStr + '|' + key.rjust(18) + ' - ' + str(self.overallInfo[key]).ljust(20)
+        strPrintStr = strPrintStr + '|' + "\n"
+        print strPrintStr
         return
 
     # printCycle: print data to standard output, each row is a trade loop, steps run left to right in time

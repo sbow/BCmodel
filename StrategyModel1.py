@@ -11,7 +11,7 @@
 # Setup:
 setTargetProfit = 0.05 # n*100 = target profit
 setModelTimestep   = 120   # s, rate at which model runs
-setModelFees    = 1.00 # USD/BTC, total fees, expressed per unit BTC (simplification)
+setModelFees    = 0 # USD/BTC, total fees, expressed per unit BTC (simplification)
 
 __author__ = 'shaun'
 

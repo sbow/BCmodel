@@ -23,12 +23,13 @@ with open(fileBitstampPkl, 'r') as pklFile:
 with open(fileDukascopyUSDCADPkl, 'r') as pklFile:
     dataUSDCAD = cPickle.load(pklFile)
 
-print dataCavirtex[0]
-print dataCavirtex[-1]
-print dataBitstamp[0]
-print dataBitstamp[-1]
-print dataUSDCAD[0]
-print dataUSDCAD[-1]
+# these print's below display start & end line items of the given datasets (commented out by default, used for debugging)
+# print dataCavirtex[0]
+# print dataCavirtex[-1]
+# print dataBitstamp[0]
+# print dataBitstamp[-1]
+# print dataUSDCAD[0]
+# print dataUSDCAD[-1]
 
 
 # SETUP parameters
@@ -38,7 +39,7 @@ print "Initial Time: ", str(worldInitialDatetime)
 strategyString = 'Strategy1'
 worldNloops = 3
 worldInitialCavirtexFunding = float(10000)
-targetProfit = 0.05
+targetProfit = 0.14
 
 # RUN
 modelTradeModel = StrategyModel1.StrategyModel1(dataUSDCAD,dataBitstamp,dataCavirtex,targetProfit)
@@ -46,6 +47,7 @@ modelWorld = WorldModel.WorldModel(worldInitialDatetime, worldNloops, worldIniti
 
 
 print modelWorld.runWorld()
+modelWorld.postProc()
 
 # REVIEW
 print modelWorld.printCycle()
